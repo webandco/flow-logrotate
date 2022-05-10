@@ -1,0 +1,21 @@
+{
+    "description": "",
+    "type": "neos-plugin",
+    "name": "webandco/flow-logrotate",
+    "minimum-stability": "dev",
+    "require": {
+        "neos/flow": "*",
+	"cesargb/php-log-rotation": "^2.5.0"
+    },
+    "require-dev": {},
+    "autoload": {
+        "psr-4": {
+            "Webandco\\Logrotate\\": "Classes/"
+        }
+    },
+    "extra": {
+        "neos": {
+            "package-key": "Webandco.Logrotate"
+        }
+    }
+}
