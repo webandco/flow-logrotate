@@ -1,0 +1,45 @@
+Neos:
+  Flow:
+    log:
+      psr3:
+        Neos\Flow\Log\PsrLoggerFactory:
+          systemLogger:
+            default:
+              class: Webandco\Logrotate\Log\Backend\RotateBackend
+              options:
+                compress: true
+                truncate: false
+          securityLogger:
+            default:
+              class: Webandco\Logrotate\Log\Backend\RotateBackend
+              options:
+                compress: true
+                truncate: false
+          sqlLogger:
+            default:
+              class: Webandco\Logrotate\Log\Backend\RotateBackend
+              options:
+                compress: true
+                truncate: false
+          i18nLogger:
+            default:
+              class: Webandco\Logrotate\Log\Backend\RotateBackend
+              options:
+                compress: true
+                truncate: false
+      throwables:
+        storageClass: Webandco\Logrotate\Log\ThrowableStorage\CleanupStorage
+        optionsByImplementation:
+          Webandco\Log\ThrowableStorage\RotateStorage:
+            storagePath: '%FLOW_PATH_DATA%Logs/Exceptions'
+            maximumDirSize:  10485760
+            filesToKeep: 5
+            compress: true
+            compressedArchivesToKeep: 10
+            maximumCompressSize: 10485760
+            maximumArchivedFiles: 100
+            compressInterval: 'P1D'
+            archiveName: 'Exceptions.Y-m-d.tar.gz'
+            archiveGlob: 'Exceptions.*.tar.gz'
+            # Pattern for files of interest
+            glob: '*.txt'
