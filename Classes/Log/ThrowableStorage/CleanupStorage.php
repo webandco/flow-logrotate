@@ -168,7 +168,7 @@ class CleanupStorage extends FileStorage
     }
 
     /**
-     *
+     * @throws \Exception
      */
     public function processStoragePath()
     {
@@ -187,9 +187,9 @@ class CleanupStorage extends FileStorage
             }
             // Case 2: Delete Files if size of directory is too big
             if (0 < $this->maximumDirSize) {
-                $dirSize = \array_sum(\array_map($files, function ($file) {
+                $dirSize = \array_sum(\array_map(function ($file) {
                     return \filesize($file);
-                }));
+                }, $files));
                 while (0 < $dirSize && $this->maximumDirSize < $dirSize) {
                     $file = \array_shift($files);
                     $dirSize -= \filesize($file);
@@ -201,7 +201,7 @@ class CleanupStorage extends FileStorage
             $dateInterval = new \DateInterval($this->compressInterval);
             // TODO:
             //   Split $files depending on logFilesToKeep or maximumDirSize into a `keep` and `compress` chunk
-            //   Determine the next archive file
+            //   Determine the next archive file using findArchiveName
             //   Use PharData to move the files by their modified date from the compress chunk into the archive
             //   Remove older archives if there are more archives than compressedArchivesToKeep
         }
@@ -219,5 +219,42 @@ class CleanupStorage extends FileStorage
         });
 
         return $files;
+    }
+
+    /**
+     * Given a timestamp, returns the formated date time string the timestamp fits into given an interval
+     *
+     * @param int $lastModifiedTimestamp
+     * @param \DateInterval $interval
+     * @param string $archiveNameDateTime
+     * @return string
+     * @throws \Exception
+     */
+    protected function findArchiveName(
+        int $lastModifiedTimestamp,
+        \DateInterval $interval,
+        string $archiveNameDateTime
+    ) {
+        $start = new \DateTimeImmutable();
+        $start = $start->setTimestamp($lastModifiedTimestamp);
+        $startYear = (int)$start->format('Y');
+
+        // set to begin of this year
+        $start = $start->setTime(0, 0, 0, 0);
+        $start = $start->setDate($startYear, 1, 1);
+
+        $intervalInSeconds = $start->add($interval)->getTimestamp() - $start->getTimestamp();
+
+        $numberOfIntervalsUntilLastModifiedTimestamp = \floor(($lastModifiedTimestamp - $start->getTimestamp()) / $intervalInSeconds);
+
+        // compute interval begin DateTime in a loop works correctly
+        $lastModifiedIntervalBegin = \DateTime::createFromImmutable($start);
+        for($i=0;$i<$numberOfIntervalsUntilLastModifiedTimestamp;$i++){
+            $lastModifiedIntervalBegin->add($interval);
+        }
+        // calculate the interval directly can be incorrect because of daylight saving
+        //$lastModifiedIntervalBegin = (new \DateTime())->setTimestamp($start->getTimestamp() + $numberOfIntervalsUntilLastModifiedTimestamp * $intervalInSeconds);
+
+        return $lastModifiedIntervalBegin->format($archiveNameDateTime);
     }
 }

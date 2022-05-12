@@ -39,7 +39,10 @@ Neos:
             maximumCompressSize: 10485760
             maximumArchivedFiles: 100
             compressInterval: 'P1D'
-            archiveName: 'Exceptions.Y-m-d.tar.gz'
+            archiveName:
+              prefix: 'Exceptions.'
+              dateTime: 'Y-m-d'
+              postfix: '.tar.gz'
             archiveGlob: 'Exceptions.*.tar.gz'
             # Pattern for files of interest
             glob: '*.txt'
