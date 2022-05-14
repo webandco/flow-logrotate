@@ -241,7 +241,10 @@ class CleanupStorage extends FileStorage
 
         // set to begin of this year
         $start = $start->setTime(0, 0, 0, 0);
-        $start = $start->setDate($startYear, 1, 1);
+        // check if dateinterval has a year, month or day value set, to reduce the number of for loops below
+        if (0 < \max($interval->y, $interval->m, $interval->d)) {
+            $start = $start->setDate($startYear, 1, 1);
+        }
 
         $intervalInSeconds = $start->add($interval)->getTimestamp() - $start->getTimestamp();
 
