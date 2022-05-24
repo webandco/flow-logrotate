@@ -5,7 +5,7 @@
     "minimum-stability": "dev",
     "require": {
         "neos/flow": "*",
-	"cesargb/php-log-rotation": "^2.5.0"
+	    "cesargb/php-log-rotation": "^2.5.0"
     },
     "require-dev": {},
     "autoload": {

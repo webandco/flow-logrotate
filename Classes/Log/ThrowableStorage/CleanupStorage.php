@@ -37,19 +37,14 @@ class CleanupStorage extends FileStorage
     protected $compress;
 
     /**
+     * @var string
+     */
+    protected $compressionAlgorithm = 'GZ';
+
+    /**
      * @var int
      */
     protected $compressedArchivesToKeep;
-
-    /**
-     * @var int
-     */
-    protected $maximumCompressSize;
-
-    /**
-     * @var int
-     */
-    protected $maximumArchivedFiles;
 
     /**
      * @var string
@@ -59,7 +54,7 @@ class CleanupStorage extends FileStorage
     /**
      * @var string
      */
-    protected $archiveName = 'Exceptions.Y-m-d.tar.gz';
+    protected $archiveName = ['prefix' => 'Exceptions.', 'dateTime' => 'Y-m-d', 'postfix' => '.tar.gz'];
 
     /**
      * @var string
@@ -74,17 +69,14 @@ class CleanupStorage extends FileStorage
      */
     public static function createWithOptions(array $options): ThrowableStorageInterface
     {
-        parent::createWithOptions($options);
-
         $storagePath    = $options['storagePath'] ?? (FLOW_PATH_DATA . 'Logs/Exceptions');
         $maximumDirSize = $options['maximumDirSize'] ?? 0;
         $logFilesToKeep = $options['logFilesToKeep'] ?? null;
         $glob           = $options['glob'] ?? '*.txt';
 
         $compress                 = $options['compress'] ?? false;
+        $compressionAlgorithm     = $options['compressionAlgorithm'] ?? 'gz';
         $compressedArchivesToKeep = $options['compressedArchivesToKeep'] ?? true;
-        $maximumCompressSize      = $options['maximumCompressSize'] ?? null;
-        $maximumArchivedFiles     = $options['maximumArchivedFiles'] ?? null;
         $compressInterval         = $options['compressInterval'] ?? true;
         $archiveName              = $options['archiveName'] ?? true;
         $archiveGlob              = $options['archiveGlob'] ?? true;
@@ -95,9 +87,8 @@ class CleanupStorage extends FileStorage
             $maximumDirSize,
             $logFilesToKeep,
             $compress,
+            $compressionAlgorithm,
             $compressedArchivesToKeep,
-            $maximumCompressSize,
-            $maximumArchivedFiles,
             $compressInterval,
             $archiveName,
             $archiveGlob
@@ -111,11 +102,10 @@ class CleanupStorage extends FileStorage
      * @param int $maximumDirSize
      * @param int|null $logFilesToKeep
      * @param bool $compress
+     * @param string $compressionAlgorithm
      * @param int|null $compressedArchivesToKeep
-     * @param int|null $maximumCompressSize
-     * @param int|null $maximumArchivedFiles
      * @param string $compressInterval
-     * @param string $archiveName
+     * @param array $archiveName
      * @param string $archiveGlob
      */
     public function __construct(
@@ -124,11 +114,10 @@ class CleanupStorage extends FileStorage
         int $maximumDirSize = 0,
         int $logFilesToKeep = null,
         bool $compress      = false,
+        string $compressionAlgorithm = 'gz',
         int $compressedArchivesToKeep = null,
-        int $maximumCompressSize      = null,
-        int $maximumArchivedFiles     = null,
         string $compressInterval      = 'P1D',
-        string $archiveName = 'Exceptions.Y-m-d.tar.gz',
+        array $archiveName = ['prefix' => 'Exceptions.', 'dateTime' => 'Y-m-d', 'postfix' => '.tar.gz'],
         string $archiveGlob = 'Exceptions.*.tar.gz'
     ) {
         parent::__construct($storagePath);
@@ -138,9 +127,8 @@ class CleanupStorage extends FileStorage
         $this->logFilesToKeep = $logFilesToKeep;
 
         $this->compress                 = $compress;
+        $this->$compressionAlgorithm    = $compressionAlgorithm;
         $this->compressedArchivesToKeep = $compressedArchivesToKeep;
-        $this->maximumCompressSize      = $maximumCompressSize;
-        $this->maximumArchivedFiles     = $maximumArchivedFiles;
         $this->compressInterval         = $compressInterval;
         $this->archiveName              = $archiveName;
         $this->archiveGlob              = $archiveGlob;
@@ -154,7 +142,6 @@ class CleanupStorage extends FileStorage
     public function logThrowable(\Throwable $throwable, array $additionalData = [])
     {
         $message = parent::logThrowable($throwable, $additionalData);
-
         try {
             $this->processStoragePath();
         } catch (\Throwable $t) {
@@ -174,36 +161,82 @@ class CleanupStorage extends FileStorage
     {
         $files = $this->getFilesSortedByModifiedDate();
 
-        if ($this->compress === false) {
-            // Case 1: Just delete files if there are too many
-            if (0 < $this->logFilesToKeep) {
-                if($this->logFilesToKeep < count($files)) {
-                    $filesToDelete = \array_slice($files, $this->logFilesToKeep);
+        $filesToHandleCase1 = [];
+        // Check for max amount of files to keep and get rest
+        if (0 < $this->logFilesToKeep) {
+            if($this->logFilesToKeep < count($files)) {
+                $filesToHandleCase1 = \array_slice($files, 0, -$this->logFilesToKeep);
+            }
+        }
 
-                    foreach ($filesToDelete as $file) {
-                        \unlink($file);
-                    }
-                }
+        $filesToHandleCase2 = [];
+        // Also check for max size of directory and remove oldest modified file until the size of directory is small enough
+        if (0 < $this->maximumDirSize) {
+            $dirSize = \array_sum(\array_map(function ($file) {
+                return \filesize($file);
+            }, $files));
+            while (0 < $dirSize && $this->maximumDirSize < $dirSize) {
+                $file = \array_shift($files);
+                $dirSize -= \filesize($file);
+                $filesToHandleCase2[] = $file;
             }
-            // Case 2: Delete Files if size of directory is too big
-            if (0 < $this->maximumDirSize) {
-                $dirSize = \array_sum(\array_map(function ($file) {
-                    return \filesize($file);
-                }, $files));
-                while (0 < $dirSize && $this->maximumDirSize < $dirSize) {
-                    $file = \array_shift($files);
-                    $dirSize -= \filesize($file);
-                    \unlink($file);
-                }
-            }
-        } else {
-            // Case 3: Archive files if compress is enabled
+        }
+
+        // Get the one of the two cases above which has more files to delete / compress
+        $filesToHandle = count($filesToHandleCase2) > count($filesToHandleCase1) ? $filesToHandleCase2 : $filesToHandleCase1;
+
+        // Start Compressing files and creating archives
+        if ($this->compress == true) {
+            // Create array of files to add for each archive
             $dateInterval = new \DateInterval($this->compressInterval);
-            // TODO:
-            //   Split $files depending on logFilesToKeep or maximumDirSize into a `keep` and `compress` chunk
-            //   Determine the next archive file using findArchiveName
-            //   Use PharData to move the files by their modified date from the compress chunk into the archive
-            //   Remove older archives if there are more archives than compressedArchivesToKeep
+            $archiveToFiles = [];
+            foreach ($filesToHandle as $file) {
+                $name = $this->findArchiveName(\filemtime($file), $dateInterval, $this->archiveName['dateTime']);
+                $archiveToFiles[$name][] = $file;
+            }
+
+            // Create archive for each mapping, add the new files to it
+            foreach ($archiveToFiles as $archiveCategory => $files) {
+                $archivePath = $this->storagePath . '/' . $this->archiveName['prefix'] . $archiveCategory;
+                $archivePathWithEnding = $archivePath . $this->archiveName['postfix'];
+                $archiveExists = file_exists($archivePathWithEnding);
+
+                $phar = new \PharData($archiveExists ? $archivePathWithEnding : $archivePath);
+                foreach ($files as $file) {
+                    $phar->addFile($file, basename($file));
+                }
+                // Create compression archive if not yet created
+                if (!$archiveExists) {
+                    switch (strtoupper($this->compressionAlgorithm)) {
+                        case 'GZ':
+                            $alg = \Phar::GZ;
+                            break;
+                        case 'BZ2':
+                            $alg = \Phar::BZ2;
+                            break;
+                        default:
+                            $alg = \Phar::NONE;
+                    }
+                    // The extension is so weird, because there is a major bug in the compress() method: https://www.php.net/manual/en/phardata.compress.php
+                    $phar->compress($alg,  substr($archivePath, strpos($archivePath, '.') + 1) . $this->archiveName['postfix']);
+                    // Delete old archive, since new PharData() automatically creates an archive, and compress then creates one too
+                    unlink($archivePath);
+                }
+            }
+
+            // Delete too old archives
+            $archives = $this->getArchivesSortedByModifiedDate();
+            $archivesToDelete = \array_slice($archives, 0, -$this->compressedArchivesToKeep);
+            $this->deleteFiles($archivesToDelete);
+        }
+
+//        // Delete handled files
+        $this->deleteFiles($filesToHandle);
+    }
+
+    protected function deleteFiles($files) {
+        foreach ($files as $file) {
+            unlink($file);
         }
     }
 
@@ -219,6 +252,20 @@ class CleanupStorage extends FileStorage
         });
 
         return $files;
+    }
+
+    /**
+     * @return array|false
+     */
+    protected function getArchivesSortedByModifiedDate()
+    {
+        $archives = \glob($this->storagePath.DIRECTORY_SEPARATOR.$this->archiveGlob);
+
+        \usort($archives, function (string $f1, string $f2) {
+            return \filemtime($f1) <=> filemtime($f2);
+        });
+
+        return $archives;
     }
 
     /**
