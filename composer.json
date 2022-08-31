@@ -1,6 +1,6 @@
 {
     "description": "",
-    "type": "neos-plugin",
+    "type": "neos-webandco",
     "name": "webandco/flow-logrotate",
     "minimum-stability": "dev",
     "require": {
@@ -14,6 +14,7 @@
         }
     },
     "extra": {
+	"installer-name": "Webandco.Logrotate",
         "neos": {
             "package-key": "Webandco.Logrotate"
         }
