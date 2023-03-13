@@ -189,11 +189,27 @@ class CleanupStorage extends FileStorage
         if ($this->compress == true) {
             // Create array of files to add for each archive
             $dateInterval = new \DateInterval($this->compressInterval);
+
+            // we ignore the current archive because PharData is buggy and causes an Exception
+            // if a previously generated .tar.gz shall be opened
+            // "Exceptions.2023-03-09.tar.gz" is a corrupted tar file (checksum mismatch of file ...
+            // there might be a related bug report: https://bugs.php.net/bug.php?id=75102
+            // to avoid this error, we keep exception files in the current interval
+            // and only past exceptions are compressed into a tar.gz
+            $archiveNameToIgnore = $this->findArchiveName(time(), $dateInterval, $this->archiveName['dateTime']);
+
             $archiveToFiles = [];
-            foreach ($filesToHandle as $file) {
+            foreach ($filesToHandle as $idx => $file) {
                 $name = $this->findArchiveName(\filemtime($file), $dateInterval, $this->archiveName['dateTime']);
+                if ($archiveNameToIgnore === $name) {
+                    // prevent delete exception files which would be compressed into current .tar.gz
+                    unset($filesToHandle[$idx]);
+                    continue;
+                }
+
                 $archiveToFiles[$name][] = $file;
             }
+            $filesToHandle = \array_values($filesToHandle);
 
             // Create archive for each mapping, add the new files to it
             foreach ($archiveToFiles as $archiveCategory => $files) {
