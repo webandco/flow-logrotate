@@ -127,7 +127,7 @@ class CleanupStorage extends FileStorage
         $this->logFilesToKeep = $logFilesToKeep;
 
         $this->compress                 = $compress;
-        $this->$compressionAlgorithm    = $compressionAlgorithm;
+        $this->compressionAlgorithm     = $compressionAlgorithm;
         $this->compressedArchivesToKeep = $compressedArchivesToKeep;
         $this->compressInterval         = $compressInterval;
         $this->archiveName              = $archiveName;

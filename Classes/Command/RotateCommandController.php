@@ -3,6 +3,7 @@ namespace Webandco\Logrotate\Command;
 
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Cli\CommandController;
+use Neos\Flow\Core\Booting\Exception\SubProcessException;
 use Neos\Flow\Core\Booting\Scripts;
 use Neos\Flow\Log\PsrLoggerFactoryInterface;
 use Neos\Flow\Log\Utility\LogEnvironment;
@@ -41,13 +42,19 @@ class RotateCommandController extends CommandController
             $args = [];
             if ($exception) {
                 $args['exception'] = true;
+
+                try {
+                    Scripts::executeCommand('rotate:internal', $this->flowSettings, true, $args);
+                }
+                // ignore subprocessexception
+                catch (SubProcessException $spe) {}
             } else {
                 $args['message'] = $this->lorem(1, $words, false);
                 $args['logger'] = $logger;
                 $args['level'] = $level;
-            }
 
-            Scripts::executeCommand('rotate:internal', $this->flowSettings, true, $args);
+                Scripts::executeCommand('rotate:internal', $this->flowSettings, true, $args);
+            }
         }
     }
 
