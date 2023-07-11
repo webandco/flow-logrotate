@@ -162,14 +162,17 @@ class CleanupStorage extends FileStorage
         $files = $this->getFilesSortedByModifiedDate();
 
         $filesToHandleCase1 = [];
+        $filesToKeepCase1 = [];
         // Check for max amount of files to keep and get rest
         if (0 < $this->logFilesToKeep) {
             if($this->logFilesToKeep < count($files)) {
                 $filesToHandleCase1 = \array_slice($files, 0, -$this->logFilesToKeep);
+                $filesToKeepCase1 = \array_slice($files, count($files) - $this->logFilesToKeep);
             }
         }
 
         $filesToHandleCase2 = [];
+        $filesToKeepCase2 = [];
         // Also check for max size of directory and remove oldest modified file until the size of directory is small enough
         if (0 < $this->maximumDirSize) {
             $dirSize = \array_sum(\array_map(function ($file) {
@@ -180,28 +183,41 @@ class CleanupStorage extends FileStorage
                 $dirSize -= \filesize($file);
                 $filesToHandleCase2[] = $file;
             }
+
+            $filesToKeepCase2 = $files;
         }
 
         // Get the one of the two cases above which has more files to delete / compress
-        $filesToHandle = count($filesToHandleCase2) > count($filesToHandleCase1) ? $filesToHandleCase2 : $filesToHandleCase1;
+        if (count($filesToHandleCase2) > count($filesToHandleCase1)) {
+            $filesToHandle = $filesToHandleCase2;
+            $filesToKeep = $filesToKeepCase2;
+        } else {
+            $filesToHandle = $filesToHandleCase1;
+            $filesToKeep = $filesToKeepCase1;
+        }
 
         // Start Compressing files and creating archives
         if ($this->compress == true) {
             // Create array of files to add for each archive
             $dateInterval = new \DateInterval($this->compressInterval);
 
-            // we ignore the current archive because PharData is buggy and causes an Exception
-            // if a previously generated .tar.gz shall be opened
+            // we ignore the current archive and archives for $filesToKeep
+            // because PharData is buggy and causes an Exception
+            // if a previously generated .tar.gz shall be opened and extended with new files:
             // "Exceptions.2023-03-09.tar.gz" is a corrupted tar file (checksum mismatch of file ...
             // there might be a related bug report: https://bugs.php.net/bug.php?id=75102
             // to avoid this error, we keep exception files in the current interval
             // and only past exceptions are compressed into a tar.gz
-            $archiveNameToIgnore = $this->findArchiveName(time(), $dateInterval, $this->archiveName['dateTime']);
+            $archiveNameToIgnore = [];
+            $archiveNameToIgnore[] = $this->findArchiveName(time(), $dateInterval, $this->archiveName['dateTime']);
+            foreach ($filesToKeep as $fileToKeep) {
+                $archiveNameToIgnore[] = $this->findArchiveName(\filemtime($fileToKeep), $dateInterval, $this->archiveName['dateTime']);
+            }
 
             $archiveToFiles = [];
             foreach ($filesToHandle as $idx => $file) {
                 $name = $this->findArchiveName(\filemtime($file), $dateInterval, $this->archiveName['dateTime']);
-                if ($archiveNameToIgnore === $name) {
+                if (\in_array($name, $archiveNameToIgnore)) {
                     // prevent delete exception files which would be compressed into current .tar.gz
                     unset($filesToHandle[$idx]);
                     continue;
@@ -211,39 +227,44 @@ class CleanupStorage extends FileStorage
             }
             $filesToHandle = \array_values($filesToHandle);
 
-            // Create archive for each mapping, add the new files to it
-            foreach ($archiveToFiles as $archiveCategory => $files) {
-                $archivePath = $this->storagePath . '/' . $this->archiveName['prefix'] . $archiveCategory;
-                $archivePathWithEnding = $archivePath . $this->archiveName['postfix'];
-                $archiveExists = file_exists($archivePathWithEnding);
+            if (count($archiveToFiles)) {
+                // Create archive for each mapping, add the new files to it
+                foreach ($archiveToFiles as $archiveCategory => $files) {
+                    $archivePath = $this->storagePath . '/' . $this->archiveName['prefix'] . $archiveCategory;
+                    $archivePathWithEnding = $archivePath . $this->archiveName['postfix'];
+                    $archiveExists = \file_exists($archivePathWithEnding);
 
-                $phar = new \PharData($archiveExists ? $archivePathWithEnding : $archivePath);
-                foreach ($files as $file) {
-                    $phar->addFile($file, basename($file));
-                }
-                // Create compression archive if not yet created
-                if (!$archiveExists) {
-                    switch (strtoupper($this->compressionAlgorithm)) {
-                        case 'GZ':
-                            $alg = \Phar::GZ;
-                            break;
-                        case 'BZ2':
-                            $alg = \Phar::BZ2;
-                            break;
-                        default:
-                            $alg = \Phar::NONE;
+                    $phar = new \PharData($archiveExists ? $archivePathWithEnding : $archivePath);
+                    foreach ($files as $file) {
+                        $phar->addFile($file, basename($file));
                     }
-                    // The extension is so weird, because there is a major bug in the compress() method: https://www.php.net/manual/en/phardata.compress.php
-                    $phar->compress($alg,  substr($archivePath, strpos($archivePath, '.') + 1) . $this->archiveName['postfix']);
-                    // Delete old archive, since new PharData() automatically creates an archive, and compress then creates one too
-                    unlink($archivePath);
+                    // Create compression archive if not yet created
+                    if (!$archiveExists) {
+                        switch (strtoupper($this->compressionAlgorithm)) {
+                            case 'GZ':
+                                $alg = \Phar::GZ;
+                                break;
+                            case 'BZ2':
+                                $alg = \Phar::BZ2;
+                                break;
+                            default:
+                                $alg = \Phar::NONE;
+                        }
+                        // The extension is so weird, because there is a major bug in the compress() method: https://www.php.net/manual/en/phardata.compress.php
+                        $phar->compress(
+                            $alg,
+                            substr($archivePath, strpos($archivePath, '.') + 1) . $this->archiveName['postfix']
+                        );
+                        // Delete old archive, since new PharData() automatically creates an archive, and compress then creates one too
+                        unlink($archivePath);
+                    }
                 }
-            }
 
-            // Delete too old archives
-            $archives = $this->getArchivesSortedByModifiedDate();
-            $archivesToDelete = \array_slice($archives, 0, -$this->compressedArchivesToKeep);
-            $this->deleteFiles($archivesToDelete);
+                // Delete too old archives
+                $archives = $this->getArchivesSortedByModifiedDate();
+                $archivesToDelete = \array_slice($archives, 0, -$this->compressedArchivesToKeep);
+                $this->deleteFiles($archivesToDelete);
+            }
         }
 
 //        // Delete handled files
