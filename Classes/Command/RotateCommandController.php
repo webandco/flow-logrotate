@@ -8,6 +8,7 @@ use Neos\Flow\Core\Booting\Scripts;
 use Neos\Flow\Log\PsrLoggerFactoryInterface;
 use Neos\Flow\Log\Utility\LogEnvironment;
 use Neos\Flow\ObjectManagement\ObjectManagerInterface;
+use Psr\Log\LogLevel;
 
 /**
  * Provides test commands to generate log entries
@@ -36,7 +37,7 @@ class RotateCommandController extends CommandController
      * @param integer $address
      * @return void
      */
-    public function logCommand(bool $exception = false, int $howmany=1, int $words=4, string $logger='systemLogger', int $level=1)
+    public function logCommand(bool $exception = false, int $howmany=1, int $words=4, string $logger='systemLogger', string $level=LogLevel::INFO)
     {
         for($i=0;$i<$howmany;$i++) {
             $args = [];
@@ -65,7 +66,7 @@ class RotateCommandController extends CommandController
      * @param integer $address
      * @return void
      */
-    public function internalCommand(bool $exception=false, string $message=null, string $logger='systemLogger', int $level=1)
+    public function internalCommand(bool $exception=false, string $message=null, string $logger='systemLogger', string $level=LogLevel::INFO)
     {
         if($exception){
             throw new \Exception($this->lorem(), 1652176822);
@@ -73,7 +74,6 @@ class RotateCommandController extends CommandController
         else{
             $logger = $this->objectManager->get(PsrLoggerFactoryInterface::class)->get($logger);
             $logger->log($level, $message, LogEnvironment::fromMethodName(__METHOD__));
-            $this->logCommand();
         }
     }
 
